@@ -1,0 +1,333 @@
+---
+title: "HaynesKD_GEO560_FinalPRoject"
+author: "Keelin Haynes"
+date: "12/12/2019"
+output: html_document
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+chooseCRANmirror(graphics=FALSE, ind=1)
+```
+
+**Hello!**  
+  
+This document explores numerous geospatial techniques that can be conducted in R. 
+
+Examples include:
+
+* Reading in raster objects and combining them into a multistack raster object (Rasterstack)
+* Checking CRS of spatial raster objects
+* Writing (exporting) out raster objects
+* Creating randomly selected point data frames that contain the coordinates and values of all layers within the rasterstack object
+* Reading and writing out shapefiles
+* Partitioning data into different groups
+* Plot shapefiles
+* Test for collinearity among covariates in models using a Stepwise VIF 
+* Creating spatial weight matrices for use in spatial econometric models
+* Spatial autocorrelation of linear model residuals
+* Run ordinary least squares (OLS), spatial autoregressive models (SAR), and spatial error models (SEM)
+
+This document is split into 4 sections:
+
+* Reading, writing, and manipulating raster data
+* Reading, partitioning, and plotting shapefiles
+* Regression algorithm and collinearity analysis
+* Spatial regression methods
+
+Note that the first section, no code is actually run. To cut down on the amount of data needed for this workshop, the first section explains how to perform the techniques, but does not actually perform them. THe data object that would have been created in section 1 is read in at the beginning of section 2. 
+
+## {.tabset .tabset-fade}
+
+### Raster Data Manipulation
+
+#This section details the creation of the dataset. Peruse it and see how the dataset was made, but know that you will read in the dataset at the beginning of the next section
+
+First, as always, you must load in your libraries
+
+```{r}
+library(raster)
+library(sf)
+library(sp)
+library(rgdal)
+library(pedometrics)
+library(dplyr)
+library(spdep)
+library(spData)
+library(spatialreg)
+```
+
+After loading in libraries, set your working directory. This is done with the setwd() function. After setting it, you can check it with the getwd() function.
+
+This is the code for my personal system:
+```{r, eval=FALSE}
+setwd("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07")
+getwd()
+```
+
+Now we read in the data we are investigating, in this case, raster objects. We do this with the raster() function from the raster package. For this project, we are reading in 14 raster layers, which looks this:
+
+```{r, eval=FALSE}
+lc_07 <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/lc_07.tif")
+pop_07 <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/pop_07.tif")
+elv_dec <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/elv_dec.tif")
+slp_dec <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/slp_dec.tif")
+dst_hwy <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/dst_hwy.tif")
+soil_af <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_af.tif")
+soil_dr <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_dr.tif")
+soil_fd <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_fd.tif")
+soil_fp <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_fp.tif")
+soil_mr <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_mr.tif")
+soil_nm <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_nm.tif")
+soil_sd <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_sd.tif")
+soil_ss <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_ss.tif")
+soil_tt <- raster("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/soil_tt.tif")
+```
+
+Once we have read in our raster layers, we need to ensure that they are all of the same extent, which is a prereq to combining them in a rasterstack. We do this with the compareRaster() function
+```{r, eval=FALSE}
+compareRaster(lc_07,pop_07,elv_dec,slp_dec,dst_hwy,soil_af,soil_dr,soil_fd,soil_fp,soil_mr,soil_nm,soil_sd,soil_ss,soil_tt)
+```
+Running this, we see that our layers are the same extent, so we can now combine them into a rasterstack using the stack() function.
+```{r, eval=FALSE}
+ag_07_stack <- stack(lc_07,pop_07,elv_dec,slp_dec,dst_hwy,soil_af,soil_dr,soil_fd,soil_fp,soil_mr,soil_nm,soil_sd,soil_ss,soil_tt)
+```
+Once the rasterstack is created, we can explore it using the below functions.
+
+Names of the different layers:
+```{r, eval=FALSE}
+names(ag_07_stack)
+```
+CRS:
+```{r, eval=FALSE}
+crs(ag_07_stack)
+```
+
+Info on each layer:
+```{r, eval=FALSE}
+ag_07_stack@layers
+```
+If you want to write out (export) the rasterstack, you can do so like this:
+```{r, eval=FALSE}
+writeRaster(ag07_stack,"Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/ag07_stack.tif", format="GTiff")
+```
+If you want to read in the rasterstack, you do so with the stack() similar to the raster() function:
+```{r, eval=FALSE}
+readin_stack <- stack("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/ag07_stack.tif")
+```
+
+
+Now that we have our rasterstack, we can collect randomly selected points from within it that contain the values of all layers under said points and places the points within a spatial point data frame.
+
+Further I have added three lines to tell us how long this line would run
+
+```{r, eval=FALSE}
+start_time <- Sys.time()
+ransam <- sampleRandom(ag_07_stack, size = 1000, xy= TRUE, sp = TRUE)
+end_time <- Sys.time()
+end_time - start_time
+```
+
+Now to write (export) this file, we use the readOGR() function from the rgdal package.
+
+```{r, eval=FALSE}
+writeOGR(obj = ransam, dsn = "Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/ransam100000", layer = "ransam1000", driver="ESRI Shapefile")
+```
+
+### Shapefile Manipulation
+
+Let's read in the dataset created from the first section. It is named ransam and is found wherever you downloaded/ saved it.
+
+```{r}
+ransam <- readOGR("Y:/GradStudents/HaynesKD/Grad2_Fall/GEO560/ag_07/ransam100000/ransam1000.shp")
+```
+
+Let's explore the randomly selected points
+
+Class of the object:
+```{r}
+class(ransam)
+```
+Structure:
+```{r}
+str(ransam)
+```
+The first five lines of the data frame:
+```{r}
+head(ransam)
+```
+
+The CRS of the object:
+```{r}
+crs(ransam)
+```
+
+Now this is not needed for our particular analysis, but if you needed to partition your data into a training and testing groups, you would do so wit the sample() functon
+
+```{r}
+sample_ids <- sample(1:nrow(ransam), size=round(nrow(ransam)*0.70), replace=F)
+rs_train <- ransam[sample_ids, ]
+rs_test <- ransam[-sample_ids, ]
+```
+
+Now lets make sure that our partitioning worked.  
+Given that our data frame has 100,000 observations and we split it 70/30, rs_train should have 70,000 values and rs_test should have 30,000 values
+
+```{r}
+rs_test
+rs_train
+```
+
+Let's see how the points are distributed across our study site.  
+As can be seen below, the points do a wonderful job of covering the study site
+
+```{r}
+plot(rs_train, col = "deepskyblue3", cex=0.005, main= "Training Points across Study Site")
+plot(rs_test, col="chartreuse4", cex=0.005, main= "Testing Points Across Study Site")
+```
+
+
+### Regression formulas and testing for collinearity
+
+This analysis is exploring how the inundation duration of flooded soil is explained by different physical factors, including:
+
+* soil drainage
+* flood inundation depth
+* mineral reserve
+* anion fixation
+* soil depth
+* topsoil texture
+* soil stability 
+* elevation
+* slope
+
+This is done with the following line:
+
+```{r}
+reg.eq1 <- soil_fd ~ soil_dr + soil_fp + soil_mr + soil_af + soil_sd + soil_tt + soil_ss + elv_dec + slp_dec 
+```
+
+Now that the regression formula is made, we can fit the model. We are going to fit it to a general linear model
+
+```{r}
+model1 <- lm(reg.eq1, data= ransam)
+```
+
+Let's explore the model we just created.  
+Looking at the linear model, it shows that the elevation covariate is not significant, but all others are. From this, we would remove it from the model.
+
+```{r}
+summary(model1)
+```
+
+An important consideration for statistical test is the colinearity of covariates. To find which covariates to exclude, we can use a variance inflation factor (VIF) analysis. This test gives each covariates a VIF score indicating how much its inclusion in the model contributes to the increase of variance due to its colinearity with other covariates. Good practice is to perform the VIF in a stepwise procedure that repeats the VIF proccess, dropping the covariate with the highest VIF score each time, recalculating VIF scores during each iteration, until only covariates with VIF scores below a selected threshold remain.
+
+We will do this with the stepVIF() function from the pedometrics package.  
+Information can be found on this function here:  
+[r function stepVIF] (https://www.rdocumentation.org/packages/pedometrics/versions/0.6-6/topics/stepVIF)
+
+```{r}
+vifresults <- stepVIF(model1, threshold = 10, verbose = TRUE)
+```
+
+Let's explore the VIF-influenced results of the linear model.  
+Looking at the VIF implementation of the linear model, we see that elevation is considered significant this time around, but that topsoil texture and soil depth have high collinearity and are thus removed.
+
+```{r}
+summary(vifresults)
+```
+
+Based on the VIF, we are going to change the model formula to this:  
+
+```{r}
+reg.eq2 <- soil_fd ~ soil_dr + soil_fp + soil_mr + soil_af + soil_ss + elv_dec + slp_dec 
+```
+
+
+### Spatial Regression Methods
+
+The first regression we will run is called an ordinary least squares. It is run with the lm() function. Astute readers will note that the OLS regression is the same regression performed in the preceeding section when demonstrating the VIF. OLS is a basic, but useful regression to determine the relationships of covariates and a response variable. 
+
+It is run as follows:
+
+```{r}
+#OLS regression
+lm_reg=lm(reg.eq2,data=ransam)
+```
+
+Let's explore it the results of the OLS.  
+As we can see below, the OLS from the revised regression formula shows high significance among all covariates. This should not be surprising, because the selected covariates were determined by the VIF to be significant predictors with low collinearity.
+
+```{r}
+summary(lm_reg)
+```
+
+The issue with OLS is that it fails to account for how spatial relationships like distance can impact the outcome of a regression. For instance, crime could be positively influenced by the amount of crime in neighboring areas. To overcome this we use spatially explicit regressions like a geographically weighted regression (GWR) or a spatially autoregressive regression (SAR). This workshop is going to focus on the latter of these, the SAR model.  
+
+Before we can run the model, we first need to find a way to inform spatial relationships, or in other words, determine how spatially related each observation is with every other observation. We do this with the creation of spatial weight data frames. There are different methods for creating these data frames depending on whether you are messing with polygon or point datasets. This lesson focuses on point data and so will exclude the polygon method. Those interested in polygon neighbors can find more info here: [r functon poly2nb] (https://www.rdocumentation.org/packages/spdep/versions/1.1-3/topics/poly2nb).  
+
+Spatial weight data frames are created for point datasets using the dnearneigh() functon.
+[More info on dnearneigh] (http://wlm.userweb.mwn.de/R/wlmRspma.htm). The function as used below uses three arguments: 
+
+* x: spatial point object
+* d1: lower distance bound
+* d2: upper distance bound
+    
+```{r}
+library(spdep)
+distdf <- dnearneigh(x=ransam, d1=0, d2=3000)
+```
+
+Let's explore the neighbor list object. Out of 1,000 observation, all had at least one link within 3000 m. The average number of links per observation was 7.66.  
+
+Now we need to convert the distance neighbor file to a weighted list file
+```{r}
+dist_listw=nb2listw(distdf, zero.policy = TRUE) 
+```
+
+Using the neighbors listw object, we can calculate the spatial autocorrelation among the residuals of the OLS model. This will tell us if spatial autocorrelation is occurring in among the data if spatially explicit models are required.  
+    
+The null hypothesis of the lm.moranstest is that the attribute being analyzed is randomly distributed among the features across the study area. In other words if the p value is less then the selected threshold (we'll use 0.05), then we can reject the null hypothesis and we state that the data is not randomly distributed, but spatially autocorrelated. If the z score is postive, then we know the data is clustered, whereas if the z score is negative we know that the data is dispersed.  
+  
+Looking at the test result below, we can reject the null hypothesis, meaning that our data is spatially autocorrelated.
+
+
+```{r}
+lm.morantest(lm_reg,dist_listw)
+```
+
+  
+  Now that we have determined the neighbor status of our observations, we can create a model that accounts for spatial relationships. As stated above, we are using the SAR model. This model incorporates spatial dependence in the regression and thus account for how spatial autocorrelation will impact the model. SAR is a global model in which everything that happens our neighbor's Y both affects us and then has a feedback affect both the original neighbors and beyond, so that every region feels some affect. 
+
+```{r}
+sar_reg=lagsarlm(reg.eq2,data = ransam, dist_listw)
+```
+  
+Let's explore the model we just created. Since our model is global, the p values and z values seen below are nor able to counted on. Instead we must use the impacts() function on the results and use that output to interpret the SAR model.
+  
+The z-value chart is read as for every 1 unit increase in the covariate on the left, we can expect a "insert number here" rise in the response variable. So the Direct effect is that if we increase covariate x by 1, we can expect Y to increase by n. The Indirect effect is that if our neighbors increase covariate x by 1, we can expect Y to increase by n.  
+  
+Further, the simulated p-values are what should be considered when evaluaing covariate significance.  
+  
+As can be seen below soil drainage, soil mineral reserve, and elevation all have negative influence on Y, meaning that they increase the time it takes for the soil to drain. Inundation depth, anion fixation, soil stability, and slope all have a postive impact on Y, meaning that they decrease the amount of time it takes the soil to drain.
+  
+```{r}
+impacts(sar_reg,listw=dist_listw)
+summary(impacts(sar_reg,listw=dist_listw,R=500),zstats=TRUE)
+```
+  
+The last type of spatial regression model we are going to perform is the spatial error model (SEM). The SEM is also a global model and acts like the SAR model, except that what this model considers to be the spillover is the residual. So our Y is explained by the error of our own region, as well as being a function of our neighbor's residual values. In other words, whatever error is included in our model, is distributed across the study area. An example would be if we forgot to include a particular covariate that actually had a significant impact on Y and is also spatially special in its distribution. The missing covariate (The error) in our model would be applied not only in the region, but in neighboring regions as well.
+  
+```{r}
+sem_reg=errorsarlm(reg.eq2,data=ransam, dist_listw)
+```
+  
+Let's explore the results of the SEM.  
+  
+The lambda value indicates how the stochastic impact to our neighbors impacts our stochastic error. If the p-value is significant, then we can say that our stochastic shock does have an impact on our model. Also, unlike the SAR model, you can correctly interpret the given summary as marginal effects. They are read as: If covariate x increases by 1, then Y increases by n.  
+  
+Looking at the results below we can see that soil drainage, mineral reserve, and slope all have negative impacts on Y, while inundation depth, anion fixation, soil stability, and elevation all have a positive impact. 
+  
+```{r}
+summary(sem_reg)
+```
